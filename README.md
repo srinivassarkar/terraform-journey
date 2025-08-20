@@ -1,4 +1,4 @@
-# terraform-journey
+# Terraform-journey
 
 🌍 My personal journey into Terraform & Infrastructure as Code (IaC).
 
