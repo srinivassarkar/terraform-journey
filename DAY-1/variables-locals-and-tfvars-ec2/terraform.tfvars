@@ -1,0 +1,6 @@
+aws_region    = "us-east-1"
+ami_id        = "ami-0360c520857e3138f"
+instance_type = "t2.micro"
+key_name      = "vpc-handson"
+vpc_id        = "vpc-04de404be16617848"
+subnet_id     = "subnet-04eff2e5e7c488d32"
