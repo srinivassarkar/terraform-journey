@@ -1209,5 +1209,713 @@ terraform output                    # Show all outputs
 terraform output <name>             # Show specific output
 terraform console                   # Interactive console
 terraform graph                     # Generate dependency graph
+```
 
-note: focus on 7,10,11,16.
+---
+
+## 19. BEST PRACTICES
+
+### File Organization
+```
+terraform/
+├── main.tf              # Main resources
+├── variables.tf         # Variable declarations
+├── outputs.tf           # Outputs
+├── locals.tf            # Local values
+├── providers.tf         # Provider configurations
+├── backend.tf           # Backend configuration
+├── versions.tf          # Version constraints
+├── dev.tfvars           # Dev variables
+├── test.tfvars          # Test variables
+├── prod.tfvars          # Prod variables
+└── README.md            # Documentation
+```
+
+### Naming Conventions
+```hcl
+# Resources: noun-based, descriptive
+resource "aws_instance" "web_server" {}
+resource "aws_vpc" "main" {}
+
+# Variables: clear and specific
+variable "instance_count" {}
+variable "environment_name" {}
+
+# Outputs: descriptive of what they return
+output "web_server_public_ip" {}
+output "database_endpoint" {}
+
+# Locals: prefixed or namespaced
+locals {
+  common_tags = {}
+  vpc_cidr = ""
+}
+```
+
+### Code Quality
+```bash
+# Always format before commit
+terraform fmt -recursive
+
+# Always validate before apply
+terraform validate
+
+# Always plan before apply
+terraform plan
+
+# Use meaningful commit messages
+git commit -m "Add production VPC configuration"
+```
+
+### Security Best Practices
+```
+✅ Never commit .tfstate files to git
+✅ Never commit .tfvars with secrets
+✅ Use remote backend (S3) for state
+✅ Enable state file encryption
+✅ Use secrets manager for credentials
+✅ Implement state locking (use_lockfile = true)
+✅ Use IAM roles, not hardcoded keys
+✅ Enable S3 versioning for state files
+✅ Use .gitignore for sensitive files
+```
+
+### .gitignore for Terraform
+```gitignore
+# Local state files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Variable files with secrets
+*.tfvars
+!example.tfvars
+
+# Override files
+override.tf
+override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc
+
+# Lock files (optional - team decision)
+.terraform.lock.hcl
+
+# Directories
+.terraform/
+```
+
+### State Management Best Practices
+```
+✅ Always use remote backend for teams
+✅ Enable S3 versioning for rollback
+✅ Regular state backups
+✅ Use state locking (native S3 or DynamoDB)
+✅ Never edit state file manually
+✅ Use terraform state commands only
+✅ Separate state per environment
+✅ Document state file location
+```
+
+### Workspace Strategy
+```
+Development → terraform workspace new dev
+Testing     → terraform workspace new test
+Staging     → terraform workspace new staging
+Production  → terraform workspace new prod
+
+# Or use separate directories for environments:
+terraform/
+├── environments/
+│   ├── dev/
+│   ├── test/
+│   └── prod/
+```
+
+### Version Pinning
+```hcl
+# ✅ DO: Pin versions for stability
+terraform {
+  required_version = "~> 1.6"
+  
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+# ❌ DON'T: Use unpinned versions
+# This can cause unexpected behavior
+```
+
+### Resource Naming
+```hcl
+# ✅ DO: Use consistent naming
+resource "aws_instance" "web" {
+  tags = {
+    Name        = "${var.environment}-web-server"
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# ❌ DON'T: Use random names
+resource "aws_instance" "server1" {
+  tags = {
+    Name = "prod server"
+  }
+}
+```
+
+### DRY Principle (Don't Repeat Yourself)
+```hcl
+# ✅ DO: Use locals for repeated values
+locals {
+  common_tags = {
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Project     = var.project_name
+    Team        = var.team_name
+  }
+}
+
+resource "aws_instance" "web" {
+  tags = merge(local.common_tags, {
+    Name = "web-server"
+  })
+}
+
+resource "aws_instance" "app" {
+  tags = merge(local.common_tags, {
+    Name = "app-server"
+  })
+}
+```
+
+### Error Handling
+```hcl
+# Use validation blocks
+variable "instance_type" {
+  type        = string
+  description = "EC2 instance type"
+  
+  validation {
+    condition     = can(regex("^t2\\.", var.instance_type))
+    error_message = "Instance type must be t2 family."
+  }
+}
+
+# Use precondition/postcondition (Terraform 1.2+)
+resource "aws_instance" "web" {
+  ami           = var.ami_id
+  instance_type = var.instance_type
+  
+  lifecycle {
+    precondition {
+      condition     = data.aws_ami.ubuntu.architecture == "x86_64"
+      error_message = "AMI must be x86_64 architecture."
+    }
+  }
+}
+```
+
+### Documentation
+```hcl
+# ✅ DO: Add descriptions
+variable "instance_count" {
+  description = "Number of EC2 instances to create"
+  type        = number
+  default     = 3
+}
+
+output "instance_ips" {
+  description = "Public IP addresses of all instances"
+  value       = aws_instance.web[*].public_ip
+}
+```
+
+### Performance Tips
+```
+✅ Use -target for specific resource updates
+✅ Split large configurations into modules
+✅ Use -parallelism flag for faster operations
+✅ Cache provider plugins locally
+✅ Use terraform plan -out for faster apply
+```
+
+---
+
+## 20. COMMON PATTERNS
+
+### Pattern 1: Multi-Environment Setup
+```hcl
+# locals.tf
+locals {
+  env = terraform.workspace
+  
+  common_tags = {
+    Environment = terraform.workspace
+    ManagedBy   = "Terraform"
+    Project     = "MyApp"
+  }
+  
+  # Environment-specific configurations
+  config = {
+    dev = {
+      instance_type  = "t2.micro"
+      instance_count = 1
+      db_size        = 20
+    }
+    test = {
+      instance_type  = "t2.small"
+      instance_count = 2
+      db_size        = 50
+    }
+    prod = {
+      instance_type  = "t2.large"
+      instance_count = 5
+      db_size        = 100
+    }
+  }
+}
+
+# main.tf
+resource "aws_instance" "app" {
+  count         = local.config[local.env].instance_count
+  ami           = var.ami_id
+  instance_type = local.config[local.env].instance_type
+  
+  tags = merge(local.common_tags, {
+    Name = "${local.env}-app-${count.index + 1}"
+  })
+}
+```
+
+### Pattern 2: Module Structure
+```hcl
+# modules/vpc/main.tf
+variable "vpc_cidr" {
+  description = "CIDR block for VPC"
+  type        = string
+}
+
+variable "environment" {
+  description = "Environment name"
+  type        = string
+}
+
+resource "aws_vpc" "main" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+  
+  tags = {
+    Name        = "${var.environment}-vpc"
+    Environment = var.environment
+  }
+}
+
+output "vpc_id" {
+  description = "VPC ID"
+  value       = aws_vpc.main.id
+}
+
+output "vpc_cidr" {
+  description = "VPC CIDR block"
+  value       = aws_vpc.main.cidr_block
+}
+
+# Root main.tf - Using the module
+module "dev_vpc" {
+  source      = "./modules/vpc"
+  vpc_cidr    = "10.0.0.0/16"
+  environment = "dev"
+}
+
+module "prod_vpc" {
+  source      = "./modules/vpc"
+  vpc_cidr    = "10.1.0.0/16"
+  environment = "prod"
+}
+
+# Reference module outputs
+output "dev_vpc_id" {
+  value = module.dev_vpc.vpc_id
+}
+```
+
+### Pattern 3: Conditional Resources
+```hcl
+# Create resource only in production
+resource "aws_db_instance" "database" {
+  count = var.environment == "prod" ? 1 : 0
+  
+  identifier     = "production-db"
+  engine         = "mysql"
+  instance_class = "db.t3.medium"
+  
+  tags = {
+    Environment = var.environment
+  }
+}
+
+# Different configurations based on environment
+resource "aws_instance" "web" {
+  ami           = var.ami_id
+  instance_type = var.environment == "prod" ? "t2.large" : "t2.micro"
+  
+  monitoring = var.environment == "prod" ? true : false
+  
+  tags = {
+    Name = "${var.environment}-web-server"
+  }
+}
+```
+
+### Pattern 4: Data Source Usage
+```hcl
+# Get latest AMI
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+  
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
+  }
+  
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# Use data source in resource
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t2.micro"
+  
+  tags = {
+    Name = "web-server"
+  }
+}
+
+# Get existing VPC
+data "aws_vpc" "existing" {
+  tags = {
+    Name = "existing-vpc"
+  }
+}
+
+# Use existing VPC
+resource "aws_subnet" "new" {
+  vpc_id     = data.aws_vpc.existing.id
+  cidr_block = "10.0.1.0/24"
+}
+```
+
+### Pattern 5: Security Group with Dynamic Rules
+```hcl
+locals {
+  ingress_rules = [
+    {
+      port        = 443
+      description = "HTTPS from anywhere"
+      cidr_blocks = ["0.0.0.0/0"]
+    },
+    {
+      port        = 80
+      description = "HTTP from anywhere"
+      cidr_blocks = ["0.0.0.0/0"]
+    },
+    {
+      port        = 22
+      description = "SSH from office"
+      cidr_blocks = ["203.0.113.0/24"]
+    }
+  ]
+}
+
+resource "aws_security_group" "web" {
+  name        = "${var.environment}-web-sg"
+  description = "Security group for web servers"
+  vpc_id      = aws_vpc.main.id
+  
+  dynamic "ingress" {
+    for_each = local.ingress_rules
+    content {
+      description = ingress.value.description
+      from_port   = ingress.value.port
+      to_port     = ingress.value.port
+      protocol    = "tcp"
+      cidr_blocks = ingress.value.cidr_blocks
+    }
+  }
+  
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound"
+  }
+  
+  tags = {
+    Name        = "${var.environment}-web-sg"
+    Environment = var.environment
+  }
+}
+```
+
+### Pattern 6: Output Formatting
+```hcl
+# Simple output
+output "instance_id" {
+  description = "EC2 instance ID"
+  value       = aws_instance.web.id
+}
+
+# Multiple values as map
+output "instance_details" {
+  description = "Complete instance information"
+  value = {
+    id         = aws_instance.web.id
+    public_ip  = aws_instance.web.public_ip
+    private_ip = aws_instance.web.private_ip
+    dns_name   = aws_instance.web.public_dns
+  }
+}
+
+# List of values from multiple resources
+output "all_instance_ips" {
+  description = "Public IPs of all instances"
+  value       = aws_instance.web[*].public_ip
+}
+
+# Conditional output
+output "database_endpoint" {
+  description = "Database endpoint (prod only)"
+  value       = var.environment == "prod" ? aws_db_instance.database[0].endpoint : "N/A"
+}
+
+# Sensitive output
+output "db_password" {
+  description = "Database password"
+  value       = random_password.db_password.result
+  sensitive   = true  # Hides from console output
+}
+```
+
+### Pattern 7: Remote State Data Source
+```hcl
+# Read state from another Terraform project
+data "terraform_remote_state" "network" {
+  backend = "s3"
+  
+  config = {
+    bucket = "my-terraform-state"
+    key    = "network/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+# Use outputs from remote state
+resource "aws_instance" "app" {
+  ami           = var.ami_id
+  instance_type = "t2.micro"
+  subnet_id     = data.terraform_remote_state.network.outputs.subnet_id
+  vpc_security_group_ids = [
+    data.terraform_remote_state.network.outputs.security_group_id
+  ]
+  
+  tags = {
+    Name = "app-server"
+  }
+}
+```
+
+### Pattern 8: Count vs For_Each Decision
+```hcl
+# Use COUNT when: Simple numbering needed
+variable "instance_count" {
+  default = 3
+}
+
+resource "aws_instance" "servers" {
+  count         = var.instance_count
+  ami           = var.ami_id
+  instance_type = "t2.micro"
+  
+  tags = {
+    Name = "server-${count.index + 1}"  # server-1, server-2, server-3
+  }
+}
+
+# Use FOR_EACH when: Named resources with specific configs
+variable "instances" {
+  type = map(object({
+    instance_type = string
+    subnet_id     = string
+  }))
+  
+  default = {
+    "web" = {
+      instance_type = "t2.micro"
+      subnet_id     = "subnet-abc123"
+    }
+    "app" = {
+      instance_type = "t2.small"
+      subnet_id     = "subnet-def456"
+    }
+    "db" = {
+      instance_type = "t2.medium"
+      subnet_id     = "subnet-ghi789"
+    }
+  }
+}
+
+resource "aws_instance" "named_servers" {
+  for_each      = var.instances
+  ami           = var.ami_id
+  instance_type = each.value.instance_type
+  subnet_id     = each.value.subnet_id
+  
+  tags = {
+    Name = "${each.key}-server"  # web-server, app-server, db-server
+    Role = each.key
+  }
+}
+```
+
+### Pattern 9: Depends_on for Implicit Dependencies
+```hcl
+# Explicit dependency when Terraform can't detect it
+resource "aws_iam_role" "ec2_role" {
+  name = "ec2-role"
+  
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "policy" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+}
+
+resource "aws_iam_instance_profile" "profile" {
+  name = "ec2-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
+# EC2 instance must wait for profile to be fully ready
+resource "aws_instance" "web" {
+  ami                  = var.ami_id
+  instance_type        = "t2.micro"
+  iam_instance_profile = aws_iam_instance_profile.profile.name
+  
+  # Ensure policy is attached before instance starts
+  depends_on = [
+    aws_iam_role_policy_attachment.policy
+  ]
+  
+  tags = {
+    Name = "web-server"
+  }
+}
+```
+
+### Pattern 10: Lifecycle Management
+```hcl
+# Production database - prevent accidental deletion
+resource "aws_db_instance" "production" {
+  identifier     = "prod-db"
+  engine         = "mysql"
+  instance_class = "db.t3.medium"
+  
+  lifecycle {
+    prevent_destroy = true  # Cannot be destroyed
+  }
+}
+
+# Auto Scaling Group - replace before destroying
+resource "aws_launch_template" "app" {
+  name_prefix   = "app-"
+  image_id      = var.ami_id
+  instance_type = "t2.micro"
+  
+  lifecycle {
+    create_before_destroy = true  # Zero downtime updates
+  }
+}
+
+# Resource with manual changes - ignore specific attributes
+resource "aws_instance" "web" {
+  ami           = var.ami_id
+  instance_type = "t2.micro"
+  
+  tags = {
+    Name        = "web-server"
+    Environment = var.environment
+  }
+  
+  lifecycle {
+    ignore_changes = [
+      tags["LastModified"],  # Ignore if manually tagged
+      user_data,             # Ignore user_data changes
+    ]
+  }
+}
+```
+
+---
+
+## 🎯 INTERVIEW QUICK TIPS
+
+### Most Asked Questions:
+1. **"How do you manage state in a team?"**
+   → Remote backend (S3) with `use_lockfile = true`
+
+2. **"How do you handle multiple environments?"**
+   → Workspaces + separate tfvars files
+
+3. **"What's the difference between count and for_each?"**
+   → Count = simple lists, for_each = named resources (preserves state)
+
+4. **"How do you recreate a corrupted resource?"**
+   → `terraform apply -replace="resource_name"` (not taint - deprecated!)
+
+5. **"How do you import existing infrastructure?"**
+   → `terraform import` + `terraform state show` + copy to .tf file
+
+### Key Commands to Remember:
+```bash
+terraform init -migrate-state    # Backend migration
+terraform apply -replace="..."   # Force recreation
+terraform state mv old new       # Rename without recreate
+terraform workspace new prod     # Create environment
+```
+
+### Red Flags to Avoid:
+```
+❌ Committing .tfstate to git
+❌ Hardcoding credentials
+❌ Not using remote backend for teams
+❌ Using deprecated "taint" command
+❌ Not pinning provider versions
+```
+
+**Good luck with your interview! 🚀**
